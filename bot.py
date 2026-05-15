@@ -3,13 +3,16 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ParseMode
 import json
 import io
-import openai
 
 from config import TELEGRAM_TOKEN, WEBHOOK_URL, OPENAI_API_KEY
 from database import get_tasks, update_task_status, delete_task, get_stats, clear_chat_history
 from claude_agent import chat_with_kolya
 
-openai_client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+try:
+    import openai
+    openai_client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+except Exception:
+    openai_client = None
 
 PRIORITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 STATUS_EMOJI = {"todo": "📋", "in_progress": "⏳", "done": "✅"}
@@ -49,6 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def transcribe_voice(voice_file) -> str:
+    if not openai_client:
+        raise RuntimeError("OpenAI не налаштований")
     file_bytes = await voice_file.download_as_bytearray()
     audio = io.BytesIO(bytes(file_bytes))
     audio.name = "voice.ogg"
