@@ -4,6 +4,13 @@ from datetime import datetime
 from config import DATABASE_PATH
 
 CREATE_TABLES = """
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    added_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -108,6 +115,36 @@ async def get_chat_history(user_id: int, limit: int = 20):
         )
         rows = await cursor.fetchall()
         return list(reversed([dict(r) for r in rows]))
+
+
+async def register_contact(user_id: int, name: str):
+    now = datetime.now().isoformat()
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            "INSERT INTO contacts (user_id, name, added_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET name=?, added_at=?",
+            (user_id, name, now, name, now)
+        )
+        await db.commit()
+
+
+async def get_contacts():
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT user_id, name FROM contacts ORDER BY name")
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_contact_by_name(name: str):
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT user_id, name FROM contacts WHERE LOWER(name) LIKE LOWER(?)",
+            (f"%{name}%",)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
 
 
 async def clear_chat_history(user_id: int):
