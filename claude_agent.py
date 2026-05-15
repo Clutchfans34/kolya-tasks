@@ -335,7 +335,16 @@ async def chat_with_kolya(user_id: int, user_message: str) -> dict:
                         system=SYSTEM_PROMPT,
                         messages=messages + [
                             {"role": "assistant", "content": response.content},
-                            {"role": "user", "content": f"Ось задачі: {json.dumps(fetched, ensure_ascii=False)}"}
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": block.id,
+                                        "content": json.dumps(fetched, ensure_ascii=False)
+                                    }
+                                ]
+                            }
                         ]
                     )
                     for b in follow_up.content:
