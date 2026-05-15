@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
@@ -13,6 +12,7 @@ from config import TELEGRAM_TOKEN, WEBHOOK_URL, PORT
 from database import init_db, get_tasks, create_task, update_task_status, delete_task, get_stats
 from claude_agent import chat_with_kolya
 from bot import build_application
+from frontend_html import HTML_CONTENT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,13 +44,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Koля Task Manager", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
 @app.get("/app", response_class=HTMLResponse)
 async def mini_app(user_id: int = 0):
-    with open("frontend/index.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+    return HTMLResponse(HTML_CONTENT)
 
 
 @app.post("/webhook")
