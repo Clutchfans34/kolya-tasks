@@ -3,16 +3,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from telegram.constants import ParseMode
 import json
 import io
+import httpx
 
 from config import TELEGRAM_TOKEN, WEBHOOK_URL, OPENAI_API_KEY
 from database import get_tasks, update_task_status, delete_task, get_stats, clear_chat_history
 from claude_agent import chat_with_kolya
-
-try:
-    import openai
-    openai_client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-except Exception:
-    openai_client = None
 
 PRIORITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 STATUS_EMOJI = {"todo": "📋", "in_progress": "⏳", "done": "✅"}
@@ -52,17 +47,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def transcribe_voice(voice_file) -> str:
-    if not openai_client:
-        raise RuntimeError("OpenAI не налаштований")
+    if not OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY не встановлений")
     file_bytes = await voice_file.download_as_bytearray()
-    audio = io.BytesIO(bytes(file_bytes))
-    audio.name = "voice.ogg"
-    transcript = await openai_client.audio.transcriptions.create(
-        model="whisper-1",
-        file=audio,
-        language="uk"
-    )
-    return transcript.text
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            "https://api.openai.com/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+            files={"file": ("voice.ogg", bytes(file_bytes), "audio/ogg")},
+            data={"model": "whisper-1", "language": "uk"},
+        )
+        response.raise_for_status()
+        return response.json()["text"]
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
