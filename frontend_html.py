@@ -592,7 +592,7 @@ if (tg) {
   tg.expand();
 }
 
-const API = '';
+const API = 'https://kolya-tasks-production.up.railway.app';
 let userId = 0;
 let currentFilter = 'all';
 let selectedPriority = 'medium';
@@ -627,12 +627,16 @@ function showPage(name) {
 
 // TASKS
 async function loadTasks() {
+  const container = document.getElementById('tasks-list');
   try {
     const res = await fetch(`${API}/api/tasks?user_id=${userId}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     allTasks = data.tasks || [];
   } catch(e) {
     allTasks = [];
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Помилка завантаження.<br>ID: ${userId}<br>${e.message}</p></div>`;
+    return;
   }
   renderTasks();
 }
