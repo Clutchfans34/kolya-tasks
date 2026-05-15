@@ -598,9 +598,13 @@ let currentFilter = 'all';
 let selectedPriority = 'medium';
 let allTasks = [];
 
-// Get user_id from URL params
-const params = new URLSearchParams(window.location.search);
-userId = parseInt(params.get('user_id')) || 0;
+// Get user_id: спочатку з Telegram WebApp, потім з URL
+if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+  userId = tg.initDataUnsafe.user.id;
+} else {
+  const params = new URLSearchParams(window.location.search);
+  userId = parseInt(params.get('user_id')) || 12345;
+}
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
@@ -623,9 +627,13 @@ function showPage(name) {
 
 // TASKS
 async function loadTasks() {
-  const res = await fetch(`${API}/api/tasks?user_id=${userId}`);
-  const data = await res.json();
-  allTasks = data.tasks || [];
+  try {
+    const res = await fetch(`${API}/api/tasks?user_id=${userId}`);
+    const data = await res.json();
+    allTasks = data.tasks || [];
+  } catch(e) {
+    allTasks = [];
+  }
   renderTasks();
 }
 
