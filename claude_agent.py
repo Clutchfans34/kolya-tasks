@@ -3,7 +3,7 @@ import anthropic
 from database import get_tasks, create_task, get_stats, get_chat_history, save_message
 from config import ANTHROPIC_API_KEY
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 SYSTEM_PROMPT = """Ти — Коля, персональний AI-асистент Андрія П'яних, CEO компанії DriveMe.
 Твоя роль: Chief of Staff + персональний асистент. Говориш виключно українською, чітко і по суті.
@@ -127,89 +127,99 @@ async def chat_with_kolya(user_id: int, user_message: str) -> dict:
     """
     Returns: {"text": "...", "task_created": {...} or None}
     """
-    history = await get_chat_history(user_id, limit=10)
-    await save_message(user_id, "user", user_message)
+    raw_history = await get_chat_history(user_id, limit=10)
 
-    messages = history + [{"role": "user", "content": user_message}]
+    # Ensure history alternates user/assistant — drop orphan messages
+    clean_history = []
+    expected_role = "user"
+    for msg in raw_history:
+        if msg["role"] == expected_role:
+            clean_history.append(msg)
+            expected_role = "assistant" if expected_role == "user" else "user"
+
+    messages = clean_history + [{"role": "user", "content": user_message}]
 
     tasks = await get_tasks(user_id)
     tasks_context = ""
     if tasks:
         active = [t for t in tasks if t["status"] != "done"]
-        tasks_context = f"\n\n[Поточні задачі користувача: {len(active)} активних з {len(tasks)} всього]"
-
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=SYSTEM_PROMPT + tasks_context,
-        tools=TOOLS,
-        messages=messages
-    )
+        tasks_context = f"\n\n[Поточні задачі: {len(active)} активних з {len(tasks)} всього]"
 
     result_text = ""
     task_created = None
 
-    for block in response.content:
-        if block.type == "text":
-            result_text = block.text
-        elif block.type == "tool_use":
-            if block.name == "create_task":
-                inp = block.input
-                task_id = await create_task(
-                    user_id=user_id,
-                    title=inp["title"],
-                    description=inp.get("description", ""),
-                    priority=inp.get("priority", "medium"),
-                    due_date=inp.get("due_date")
-                )
-                task_created = {
-                    "id": task_id,
-                    "title": inp["title"],
-                    "priority": inp.get("priority", "medium"),
-                    "due_date": inp.get("due_date")
-                }
-                if not result_text:
-                    priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(inp.get("priority", "medium"), "🟡")
-                    result_text = f"✅ Задачу створено!\n\n{priority_emoji} **{inp['title']}**"
-                    if inp.get("due_date"):
-                        result_text += f"\n📅 Дедлайн: {inp['due_date']}"
+    try:
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT + tasks_context,
+            tools=TOOLS,
+            messages=messages
+        )
 
-            elif block.name == "get_tasks_list":
-                status_filter = block.input.get("status", "all")
-                if status_filter == "all":
-                    fetched = await get_tasks(user_id)
-                else:
-                    fetched = await get_tasks(user_id, status=status_filter)
+        for block in response.content:
+            if block.type == "text":
+                result_text = block.text
+            elif block.type == "tool_use":
+                if block.name == "create_task":
+                    inp = block.input
+                    task_id = await create_task(
+                        user_id=user_id,
+                        title=inp["title"],
+                        description=inp.get("description", ""),
+                        priority=inp.get("priority", "medium"),
+                        due_date=inp.get("due_date")
+                    )
+                    task_created = {
+                        "id": task_id,
+                        "title": inp["title"],
+                        "priority": inp.get("priority", "medium"),
+                        "due_date": inp.get("due_date")
+                    }
+                    if not result_text:
+                        priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(inp.get("priority", "medium"), "🟡")
+                        result_text = f"✅ Задачу створено!\n\n{priority_emoji} **{inp['title']}**"
+                        if inp.get("due_date"):
+                            result_text += f"\n📅 Дедлайн: {inp['due_date']}"
 
-                follow_up = client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=1024,
-                    system=SYSTEM_PROMPT,
-                    messages=messages + [
-                        {"role": "assistant", "content": response.content},
-                        {"role": "user", "content": f"Ось задачі: {json.dumps(fetched, ensure_ascii=False)}"}
-                    ]
-                )
-                for b in follow_up.content:
-                    if b.type == "text":
-                        result_text = b.text
+                elif block.name == "get_tasks_list":
+                    status_filter = block.input.get("status", "all")
+                    fetched = await get_tasks(user_id, status=None if status_filter == "all" else status_filter)
 
-            elif block.name == "get_productivity_stats":
-                stats = await get_stats(user_id)
-                total = sum(stats.values())
-                done = stats.get("done", 0)
-                result_text = f"📊 **Статистика продуктивності**\n\n"
-                result_text += f"✅ Виконано: {done}\n"
-                result_text += f"⏳ В роботі: {stats.get('in_progress', 0)}\n"
-                result_text += f"📋 Заплановано: {stats.get('todo', 0)}\n"
-                result_text += f"📦 Всього: {total}\n"
-                if total > 0:
-                    pct = round(done / total * 100)
-                    result_text += f"\n🎯 Прогрес: {pct}%"
+                    follow_up = await client.messages.create(
+                        model="claude-sonnet-4-6",
+                        max_tokens=1024,
+                        system=SYSTEM_PROMPT,
+                        messages=messages + [
+                            {"role": "assistant", "content": response.content},
+                            {"role": "user", "content": f"Ось задачі: {json.dumps(fetched, ensure_ascii=False)}"}
+                        ]
+                    )
+                    for b in follow_up.content:
+                        if b.type == "text":
+                            result_text = b.text
+
+                elif block.name == "get_productivity_stats":
+                    stats = await get_stats(user_id)
+                    total = sum(stats.values())
+                    done = stats.get("done", 0)
+                    result_text = (
+                        f"📊 **Статистика продуктивності**\n\n"
+                        f"✅ Виконано: {done}\n"
+                        f"⏳ В роботі: {stats.get('in_progress', 0)}\n"
+                        f"📋 Заплановано: {stats.get('todo', 0)}\n"
+                        f"📦 Всього: {total}"
+                    )
+                    if total > 0:
+                        result_text += f"\n\n🎯 Прогрес: {round(done / total * 100)}%"
+
+    except Exception as e:
+        result_text = f"⚠️ Помилка: {str(e)[:200]}"
 
     if not result_text:
         result_text = "Зрозумів! Чим можу допомогти далі?"
 
+    await save_message(user_id, "user", user_message)
     await save_message(user_id, "assistant", result_text)
 
     return {"text": result_text, "task_created": task_created}

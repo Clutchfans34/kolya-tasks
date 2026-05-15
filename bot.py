@@ -92,7 +92,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice_file = await update.message.voice.get_file()
         text = await transcribe_voice(voice_file)
     except Exception as e:
-        await update.message.reply_text("⚠️ Не вдалося розпізнати голос. Спробуй ще раз.")
+        await update.message.reply_text(f"⚠️ Помилка розпізнавання: {str(e)[:300]}")
         return
 
     await update.message.reply_text(f"🎤 _{text}_", parse_mode=ParseMode.MARKDOWN)
