@@ -519,7 +519,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <button class="filter-tab" data-filter="done" onclick="setFilter('done', this)">Виконані</button>
     </div>
     <div id="tasks-list">
-      <div class="loader"><div class="spinner"></div></div>
+      <div class="empty-state"><div class="icon">⏳</div><p>Завантаження...</p></div>
     </div>
   </div>
 </div>
@@ -606,10 +606,15 @@ if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
   userId = parseInt(params.get('user_id')) || 12345;
 }
 
-// Init
-document.addEventListener('DOMContentLoaded', () => {
+// Init — не чекаємо DOMContentLoaded, запускаємо одразу
+function init() {
   loadTasks();
-});
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 
 // PAGE SWITCHING
 function showPage(name) {
