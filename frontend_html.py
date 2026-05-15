@@ -586,27 +586,34 @@ HTML_CONTENT = """<!DOCTYPE html>
 </div>
 
 <script>
-const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.ready();
-  tg.expand();
-}
-
 const API = 'https://kolya-tasks-production.up.railway.app';
 let userId = 0;
 let currentFilter = 'all';
 let selectedPriority = 'medium';
 let allTasks = [];
+let tg = null;
 
-// Get user_id: спочатку з Telegram WebApp, потім з URL
-if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
-  userId = tg.initDataUnsafe.user.id;
-} else {
-  const params = new URLSearchParams(window.location.search);
-  userId = parseInt(params.get('user_id')) || 12345;
+function setStatus(msg) {
+  const el = document.getElementById('tasks-list');
+  if (el) el.innerHTML = `<div class="empty-state"><div class="icon">⏳</div><p>${msg}</p></div>`;
 }
 
-// Init — не чекаємо DOMContentLoaded, запускаємо одразу
+try {
+  tg = window.Telegram?.WebApp || null;
+  if (tg) { tg.ready(); tg.expand(); }
+} catch(e) { /* ignore tg init errors */ }
+
+try {
+  if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+    userId = tg.initDataUnsafe.user.id;
+  } else {
+    const params = new URLSearchParams(window.location.search);
+    userId = parseInt(params.get('user_id')) || 0;
+  }
+} catch(e) { userId = 0; }
+
+setStatus(`Завантаження... (ID: ${userId || '?'})`);
+
 function init() {
   loadTasks();
 }
@@ -633,14 +640,31 @@ function showPage(name) {
 // TASKS
 async function loadTasks() {
   const container = document.getElementById('tasks-list');
+  if (!userId) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Не вдалося визначити user ID.<br>Відкрий через Telegram бот.</p></div>`;
+    return;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+
   try {
-    const res = await fetch(`${API}/api/tasks?user_id=${userId}`);
+    setStatus(`Запит до сервера...<br><small>${userId}</small>`);
+    const res = await fetch(`${API}/api/tasks?user_id=${userId}`, { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     allTasks = data.tasks || [];
   } catch(e) {
+    clearTimeout(timer);
     allTasks = [];
-    container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>Помилка завантаження.<br>ID: ${userId}<br>${e.message}</p></div>`;
+    const msg = e.name === 'AbortError' ? 'Timeout (12s) — сервер не відповідає' : e.message;
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">⚠️</div>
+        <p>Помилка: ${msg}<br><small>ID: ${userId}</small></p>
+        <button onclick="loadTasks()" style="margin-top:16px;padding:10px 24px;background:var(--accent);border:none;border-radius:12px;color:white;font-size:14px;cursor:pointer;">🔄 Спробувати знову</button>
+      </div>`;
     return;
   }
   renderTasks();
