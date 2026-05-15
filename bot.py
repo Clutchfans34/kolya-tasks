@@ -76,11 +76,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📱 Відкрити Task Manager", web_app=WebAppInfo(url=webapp_url))]
     ])
 
-    await update.message.reply_text(
-        reply_text,
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=keyboard
-    )
+    try:
+        await update.message.reply_text(reply_text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+    except Exception:
+        await update.message.reply_text(reply_text, reply_markup=keyboard)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,11 +103,10 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📱 Відкрити Task Manager", web_app=WebAppInfo(url=webapp_url))]
     ])
 
-    await update.message.reply_text(
-        result["text"],
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=keyboard
-    )
+    try:
+        await update.message.reply_text(result["text"], parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+    except Exception:
+        await update.message.reply_text(result["text"], reply_markup=keyboard)
 
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
