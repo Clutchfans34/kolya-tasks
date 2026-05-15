@@ -2,10 +2,14 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 import json
+import io
+import openai
 
-from config import TELEGRAM_TOKEN, WEBHOOK_URL
+from config import TELEGRAM_TOKEN, WEBHOOK_URL, OPENAI_API_KEY
 from database import get_tasks, update_task_status, delete_task, get_stats, clear_chat_history
 from claude_agent import chat_with_kolya
+
+openai_client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 PRIORITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 STATUS_EMOJI = {"todo": "📋", "in_progress": "⏳", "done": "✅"}
@@ -44,6 +48,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def transcribe_voice(voice_file) -> str:
+    file_bytes = await voice_file.download_as_bytearray()
+    audio = io.BytesIO(bytes(file_bytes))
+    audio.name = "voice.ogg"
+    transcript = await openai_client.audio.transcriptions.create(
+        model="whisper-1",
+        file=audio,
+        language="uk"
+    )
+    return transcript.text
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -61,6 +77,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         reply_text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=keyboard
+    )
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        voice_file = await update.message.voice.get_file()
+        text = await transcribe_voice(voice_file)
+    except Exception as e:
+        await update.message.reply_text("⚠️ Не вдалося розпізнати голос. Спробуй ще раз.")
+        return
+
+    await update.message.reply_text(f"🎤 _{text}_", parse_mode=ParseMode.MARKDOWN)
+
+    result = await chat_with_kolya(user_id, text)
+
+    webapp_url = f"{WEBHOOK_URL}/app?user_id={user_id}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Відкрити Task Manager", web_app=WebAppInfo(url=webapp_url))]
+    ])
+
+    await update.message.reply_text(
+        result["text"],
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=keyboard
     )
@@ -130,4 +174,5 @@ def build_application():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     return app
